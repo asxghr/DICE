@@ -8,11 +8,16 @@ import {
   jsonResponse,
   errorResponse,
   parseJsonBody,
+  isAllowedOrigin,
+  STATIC_ALLOWED_ORIGINS,
 } from './http.ts'
 import {
   extractBearerToken,
   checkIssuerAdminAuthorization,
 } from './auth.ts'
+import { issueCredentialHandler } from '../issue-credential/index.ts'
+import { verifyCredentialHandler } from '../verify-credential/index.ts'
+import { revokeCredentialHandler } from '../revoke-credential/index.ts'
 
 test('1. Missing Authorization header throws UNAUTHENTICATED (401)', () => {
   const req = new Request('http://localhost/issue', {
@@ -163,37 +168,121 @@ test('5. Stable error response shape adheres strictly to D.I.C.E. specification'
   })
 })
 
-test('6. CORS and OPTIONS preflight behavior is safe and permissive', () => {
-  // Preflight OPTIONS returns 200 with secure CORS origin headers
-  const optionsReq = new Request('http://localhost/issue', {
-    method: 'OPTIONS',
-    headers: { Origin: 'http://localhost:5173' },
-  })
-  const preflightRes = handleCorsPreflight(optionsReq)
-  assert.ok(preflightRes !== null)
-  assert.strictEqual(preflightRes.status, 200)
-  assert.strictEqual(preflightRes.headers.get('access-control-allow-origin'), 'http://localhost:5173')
-  assert.ok(preflightRes.headers.get('access-control-allow-methods')?.includes('POST'))
-  assert.strictEqual(preflightRes.headers.get('vary'), 'Origin')
+test('6. CORS allowlist, origin reflection, and OPTIONS preflight behavior', async () => {
+  const allowedOrigins = [
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    'https://d-i-c-e.vercel.app',
+    'https://d-i-c-e-asxghr.vercel.app',
+    'https://d-i-c-e-git-main-asxghr.vercel.app',
+    'https://d-i-c-e-git-feat-frontend-next-step-asxghr.vercel.app',
+    'https://d-i-c-kmyseeafl-asxghr.vercel.app',
+    'https://d-i-c-mf2yonrnc-asxghr.vercel.app',
+  ]
 
-  // Direct corsHeaders and jsonResponse checks with fallback
+  const rejectedOrigins = [
+    'https://malicious-site.com',
+    'https://attacker-origin.example.org',
+    'http://localhost:3000',
+    'https://another-project.vercel.app',
+    'https://d-i-c-e.evil.com',
+  ]
+
+  // A. Allowed origins: Preflight OPTIONS reflects requesting origin exactly, never '*'
+  for (const origin of allowedOrigins) {
+    const optionsReq = new Request('http://localhost/issue', {
+      method: 'OPTIONS',
+      headers: { Origin: origin },
+    })
+    const preflightRes = handleCorsPreflight(optionsReq)
+    assert.ok(preflightRes !== null, `Preflight response should not be null for ${origin}`)
+    assert.strictEqual(preflightRes.status, 200)
+    assert.strictEqual(
+      preflightRes.headers.get('access-control-allow-origin'),
+      origin,
+      `Should reflect allowed origin ${origin}`
+    )
+    assert.notStrictEqual(
+      preflightRes.headers.get('access-control-allow-origin'),
+      '*',
+      'Must never use wildcard origin "*"'
+    )
+    assert.ok(preflightRes.headers.get('access-control-allow-methods')?.includes('POST'))
+    assert.ok(preflightRes.headers.get('access-control-allow-headers')?.includes('authorization'))
+    assert.strictEqual(preflightRes.headers.get('vary'), 'Origin')
+
+    // Standard JSON response reflects allowed origin
+    const postReq = new Request('http://localhost/issue', {
+      method: 'POST',
+      headers: { Origin: origin },
+    })
+    const jsonRes = jsonResponse({ status: 'ok' }, 200, undefined, postReq)
+    assert.strictEqual(jsonRes.headers.get('access-control-allow-origin'), origin)
+
+    // Error response reflects allowed origin
+    const errRes = errorResponse(new ApiError('INVALID_REQUEST', 'Bad request', 400), 400, postReq)
+    assert.strictEqual(errRes.headers.get('access-control-allow-origin'), origin)
+  }
+
+  // B. Rejected origins: Never reflected in CORS headers
+  for (const rejectedOrigin of rejectedOrigins) {
+    const optionsReq = new Request('http://localhost/issue', {
+      method: 'OPTIONS',
+      headers: { Origin: rejectedOrigin },
+    })
+    const preflightRes = handleCorsPreflight(optionsReq)
+    assert.ok(preflightRes !== null)
+    assert.strictEqual(preflightRes.status, 200)
+    assert.strictEqual(
+      preflightRes.headers.get('access-control-allow-origin'),
+      null,
+      `Rejected origin ${rejectedOrigin} must NOT be reflected`
+    )
+    assert.notStrictEqual(preflightRes.headers.get('access-control-allow-origin'), rejectedOrigin)
+
+    // JSON response does not reflect rejected origin
+    const postReq = new Request('http://localhost/issue', {
+      method: 'POST',
+      headers: { Origin: rejectedOrigin },
+    })
+    const jsonRes = jsonResponse({ status: 'ok' }, 200, undefined, postReq)
+    assert.strictEqual(jsonRes.headers.get('access-control-allow-origin'), null)
+    assert.notStrictEqual(jsonRes.headers.get('access-control-allow-origin'), rejectedOrigin)
+
+    // Error response does not reflect rejected origin
+    const errRes = errorResponse(new ApiError('INVALID_REQUEST', 'Bad request', 400), 400, postReq)
+    assert.strictEqual(errRes.headers.get('access-control-allow-origin'), null)
+    assert.notStrictEqual(errRes.headers.get('access-control-allow-origin'), rejectedOrigin)
+  }
+
+  // C. Fallback when request has no Origin header (CLI, server-to-server, unit tests)
   assert.strictEqual(corsHeaders['Access-Control-Allow-Origin'], 'http://localhost:5173')
-  const sampleJsonRes = jsonResponse({ status: 'ok' })
-  assert.strictEqual(sampleJsonRes.status, 200)
-  assert.strictEqual(sampleJsonRes.headers.get('content-type'), 'application/json')
-  assert.strictEqual(sampleJsonRes.headers.get('access-control-allow-origin'), 'http://localhost:5173')
+  const defaultJsonRes = jsonResponse({ status: 'ok' })
+  assert.strictEqual(defaultJsonRes.headers.get('access-control-allow-origin'), 'http://localhost:5173')
 
-  // Configured ALLOWED_ORIGIN overrides default
+  // D. Environment variable ALLOWED_ORIGIN configuration support
   process.env.ALLOWED_ORIGIN = 'https://dice-demo.vercel.app'
+  const customOriginReq = new Request('http://localhost/issue', {
+    method: 'OPTIONS',
+    headers: { Origin: 'https://dice-demo.vercel.app' },
+  })
+  const customPreflight = handleCorsPreflight(customOriginReq)
+  assert.strictEqual(
+    customPreflight?.headers.get('access-control-allow-origin'),
+    'https://dice-demo.vercel.app'
+  )
   const customOriginRes = jsonResponse({ status: 'ok' })
-  assert.strictEqual(customOriginRes.headers.get('access-control-allow-origin'), 'https://dice-demo.vercel.app')
+  assert.strictEqual(
+    customOriginRes.headers.get('access-control-allow-origin'),
+    'https://dice-demo.vercel.app'
+  )
   delete process.env.ALLOWED_ORIGIN
 
-  // Non-OPTIONS requests pass through
+  // E. Non-OPTIONS requests pass through preflight handler
   const postReq = new Request('http://localhost/issue', { method: 'POST' })
   assert.strictEqual(handleCorsPreflight(postReq), null)
 
-  // Method assertion
+  // F. Method assertion
   assert.throws(
     () => assertMethod(new Request('http://localhost/issue', { method: 'GET' }), ['POST']),
     /HTTP method GET is not allowed/
@@ -249,4 +338,123 @@ test('7. Ordinary user_metadata is REJECTED as an admin authorization source', (
       return true
     }
   )
+})
+
+test('8. isAllowedOrigin correctly identifies localhost, production, preview, and rejected origins', () => {
+  // Explicit static allowlist exports
+  assert.ok(STATIC_ALLOWED_ORIGINS.includes('http://localhost:5173'))
+  assert.ok(STATIC_ALLOWED_ORIGINS.includes('https://d-i-c-e.vercel.app'))
+  assert.ok(STATIC_ALLOWED_ORIGINS.includes('https://d-i-c-e-git-feat-frontend-next-step-asxghr.vercel.app'))
+
+  // Localhost development origins
+  assert.strictEqual(isAllowedOrigin('http://localhost:5173'), true)
+  assert.strictEqual(isAllowedOrigin('http://127.0.0.1:5173'), true)
+  assert.strictEqual(isAllowedOrigin('http://localhost:5173/'), true) // trailing slash normalized
+
+  // Production Vercel origins
+  assert.strictEqual(isAllowedOrigin('https://d-i-c-e.vercel.app'), true)
+  assert.strictEqual(isAllowedOrigin('https://d-i-c-e-asxghr.vercel.app'), true)
+  assert.strictEqual(isAllowedOrigin('https://d-i-c-e-git-main-asxghr.vercel.app'), true)
+
+  // QR feature branch preview origin
+  assert.strictEqual(isAllowedOrigin('https://d-i-c-e-git-feat-frontend-next-step-asxghr.vercel.app'), true)
+
+  // Known and pattern-based Vercel preview deployment aliases
+  assert.strictEqual(isAllowedOrigin('https://d-i-c-kmyseeafl-asxghr.vercel.app'), true)
+  assert.strictEqual(isAllowedOrigin('https://d-i-c-mf2yonrnc-asxghr.vercel.app'), true)
+  assert.strictEqual(isAllowedOrigin('https://d-i-c-preview999-asxghr.vercel.app'), true)
+  assert.strictEqual(isAllowedOrigin('https://d-i-c-e-git-some-branch-asxghr.vercel.app'), true)
+
+  // Rejected origins
+  assert.strictEqual(isAllowedOrigin('https://malicious.com'), false)
+  assert.strictEqual(isAllowedOrigin('http://localhost:3000'), false)
+  assert.strictEqual(isAllowedOrigin('https://attacker.vercel.app'), false)
+  assert.strictEqual(isAllowedOrigin('https://d-i-c-e.vercel.app.evil.com'), false)
+  assert.strictEqual(isAllowedOrigin(''), false)
+  assert.strictEqual(isAllowedOrigin(null), false)
+  assert.strictEqual(isAllowedOrigin(undefined), false)
+})
+
+test('9. Edge Functions (issue, verify, revoke) apply CORS consistently across preflight and error responses', async () => {
+  const handlers = [
+    { name: 'issue-credential', handler: issueCredentialHandler },
+    { name: 'verify-credential', handler: verifyCredentialHandler },
+    { name: 'revoke-credential', handler: revokeCredentialHandler },
+  ]
+
+  const testOrigins = [
+    { origin: 'http://localhost:5173', expectedAllowed: true },
+    { origin: 'https://d-i-c-e.vercel.app', expectedAllowed: true },
+    { origin: 'https://d-i-c-e-git-feat-frontend-next-step-asxghr.vercel.app', expectedAllowed: true },
+    { origin: 'https://d-i-c-kmyseeafl-asxghr.vercel.app', expectedAllowed: true },
+    { origin: 'https://malicious-attacker.com', expectedAllowed: false },
+    { origin: 'http://localhost:3000', expectedAllowed: false },
+  ]
+
+  for (const { name, handler } of handlers) {
+    for (const { origin, expectedAllowed } of testOrigins) {
+      // 1. OPTIONS Preflight
+      const optionsReq = new Request(`http://localhost/${name}`, {
+        method: 'OPTIONS',
+        headers: { Origin: origin },
+      })
+      const preflightRes = await handler(optionsReq)
+      assert.strictEqual(preflightRes.status, 200, `${name} preflight must return 200`)
+      assert.strictEqual(preflightRes.headers.get('vary'), 'Origin')
+
+      if (expectedAllowed) {
+        assert.strictEqual(
+          preflightRes.headers.get('access-control-allow-origin'),
+          origin,
+          `${name} preflight should reflect allowed origin ${origin}`
+        )
+        assert.notStrictEqual(
+          preflightRes.headers.get('access-control-allow-origin'),
+          '*',
+          `${name} preflight must not use wildcard '*'`
+        )
+        assert.ok(
+          preflightRes.headers.get('access-control-allow-methods')?.includes('POST'),
+          `${name} preflight should allow POST`
+        )
+      } else {
+        assert.strictEqual(
+          preflightRes.headers.get('access-control-allow-origin'),
+          null,
+          `${name} preflight must NOT reflect rejected origin ${origin}`
+        )
+      }
+
+      // 2. Actual Request Error Response (e.g., missing body / invalid method)
+      const postReq = new Request(`http://localhost/${name}`, {
+        method: 'POST',
+        headers: {
+          Origin: origin,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({}),
+      })
+      const postRes = await handler(postReq)
+      assert.strictEqual(postRes.headers.get('vary'), 'Origin')
+
+      if (expectedAllowed) {
+        assert.strictEqual(
+          postRes.headers.get('access-control-allow-origin'),
+          origin,
+          `${name} response should reflect allowed origin ${origin}`
+        )
+        assert.notStrictEqual(
+          postRes.headers.get('access-control-allow-origin'),
+          '*',
+          `${name} response must not use wildcard '*'`
+        )
+      } else {
+        assert.strictEqual(
+          postRes.headers.get('access-control-allow-origin'),
+          null,
+          `${name} response must NOT reflect rejected origin ${origin}`
+        )
+      }
+    }
+  }
 })

@@ -284,7 +284,7 @@ export async function executeIssueCredential(
   }
 
   // 11. Return signed credential with HTTP 201 Created
-  return jsonResponse({ credential: signedCredential }, 201)
+  return jsonResponse({ credential: signedCredential }, 201, undefined, req)
 }
 
 /**
@@ -304,7 +304,7 @@ export async function issueCredentialHandler(
     const deps = createDefaultDependencies(depsOverride)
     return await executeIssueCredential(req, deps)
   } catch (err) {
-    return errorResponse(err)
+    return errorResponse(err, undefined, req)
   }
 }
 

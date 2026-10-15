@@ -17,37 +17,136 @@ import { getServerEnv } from './supabaseServer.ts'
 export const DEFAULT_MAX_REQUEST_SIZE = 64 * 1024 // 64 KB
 
 /**
- * Resolves the allowed origin for CORS headers.
- * 1. Uses server-side ALLOWED_ORIGIN environment variable if configured.
- * 2. Explicitly allows 'http://localhost:5173' or 'http://127.0.0.1:5173' as development fallback.
- * 3. Never falls back to unrestricted wildcard '*' for production.
+ * Explicit allowlist of recognized origin domains:
+ * - Localhost development server
+ * - Production Vercel deployment & aliases
+ * - Feature branch preview deployment & aliases
  */
-export function getCorsOrigin(req?: Request): string {
-  const configuredOrigin = getServerEnv('ALLOWED_ORIGIN')
-  if (configuredOrigin && configuredOrigin.trim()) {
-    return configuredOrigin.trim()
+export const STATIC_ALLOWED_ORIGINS: readonly string[] = Object.freeze([
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  // Production Vercel origins
+  'https://d-i-c-e.vercel.app',
+  'https://d-i-c-e-asxghr.vercel.app',
+  'https://d-i-c-e-git-main-asxghr.vercel.app',
+  // QR feature branch preview origin
+  'https://d-i-c-e-git-feat-frontend-next-step-asxghr.vercel.app',
+  // Known active preview deployment aliases
+  'https://d-i-c-kmyseeafl-asxghr.vercel.app',
+  'https://d-i-c-mf2yonrnc-asxghr.vercel.app',
+])
+
+/**
+ * Regular expressions matching valid Vercel preview deployments for this project.
+ */
+export const ALLOWED_ORIGIN_PATTERNS: readonly RegExp[] = Object.freeze([
+  // Vercel deployment hashes for this project and user: https://d-i-c-<hash>-asxghr.vercel.app
+  /^https:\/\/d-i-c-[a-z0-9]+-asxghr\.vercel\.app$/,
+  // Vercel branch preview URLs: https://d-i-c-e-git-*-asxghr.vercel.app
+  /^https:\/\/d-i-c-e-git-[a-z0-9-]+-asxghr\.vercel\.app$/,
+  // Vercel project deployment hashes: https://d-i-c-e-[a-z0-9]+-asxghr\.vercel\.app
+  /^https:\/\/d-i-c-e-[a-z0-9]+-asxghr\.vercel\.app$/,
+])
+
+/**
+ * Normalizes an origin string by trimming whitespace and removing trailing slashes.
+ */
+function normalizeOrigin(origin: string): string {
+  return origin.trim().replace(/\/+$/, '')
+}
+
+/**
+ * Determines whether a given origin is permitted under the D.I.C.E. CORS policy.
+ * 1. Checks against static allowlist.
+ * 2. Checks against Vercel preview deployment patterns.
+ * 3. Checks against environment-configured ALLOWED_ORIGIN / ALLOWED_ORIGINS.
+ */
+export function isAllowedOrigin(rawOrigin?: string | null): boolean {
+  if (!rawOrigin || typeof rawOrigin !== 'string') {
+    return false
   }
 
-  // Development fallback: check request origin for local Vite dev server
-  const requestOrigin = req?.headers.get('origin')
-  if (requestOrigin === 'http://localhost:5173' || requestOrigin === 'http://127.0.0.1:5173') {
-    return requestOrigin
+  const origin = normalizeOrigin(rawOrigin)
+  if (!origin) {
+    return false
   }
 
-  return 'http://localhost:5173'
+  // 1. Static allowlist
+  if (STATIC_ALLOWED_ORIGINS.includes(origin)) {
+    return true
+  }
+
+  // 2. Pattern allowlist (Vercel previews for d-i-c-e)
+  if (ALLOWED_ORIGIN_PATTERNS.some((pattern) => pattern.test(origin))) {
+    return true
+  }
+
+  // 3. Environment-configured origins
+  const configured = getServerEnv('ALLOWED_ORIGIN') || getServerEnv('ALLOWED_ORIGINS')
+  if (configured && configured.trim()) {
+    const customList = configured
+      .split(/[\s,]+/)
+      .map((item) => normalizeOrigin(item))
+      .filter(Boolean)
+    if (customList.includes(origin)) {
+      return true
+    }
+  }
+
+  return false
+}
+
+/**
+ * Resolves the allowed origin for CORS headers.
+ * 1. Checks request Origin header against the explicit allowlist.
+ *    If allowed, reflects the requesting origin.
+ * 2. If an Origin header is present but rejected (not in allowlist), returns null.
+ * 3. If no Origin header is present (non-browser or server-to-server):
+ *    Falls back to configured ALLOWED_ORIGIN if set, or default localhost for local dev.
+ */
+export function getCorsOrigin(req?: Request): string | null {
+  const requestOrigin = req?.headers?.get('origin')?.trim()
+
+  if (requestOrigin) {
+    if (isAllowedOrigin(requestOrigin)) {
+      return normalizeOrigin(requestOrigin)
+    }
+    // Explicitly rejected origin: never reflect
+    return null
+  }
+
+  // Fallback when no Origin header is sent (e.g. CLI, direct script, or test calls without request object):
+  const configured = getServerEnv('ALLOWED_ORIGIN') || getServerEnv('ALLOWED_ORIGINS')
+  if (configured && configured.trim()) {
+    const firstConfigured = configured
+      .split(/[\s,]+/)[0]
+      ?.trim()
+      ?.replace(/\/+$/, '')
+    if (firstConfigured) {
+      return firstConfigured
+    }
+  }
+
+  return STATIC_ALLOWED_ORIGINS[0] // 'http://localhost:5173'
 }
 
 /**
  * Generates CORS headers tailored to the request origin and server environment.
+ * Omits Access-Control-Allow-Origin if origin is rejected.
  */
 export function getCorsHeaders(req?: Request): Record<string, string> {
   const origin = getCorsOrigin(req)
-  return {
-    'Access-Control-Allow-Origin': origin,
+  const headers: Record<string, string> = {
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
     'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
     'Vary': 'Origin',
   }
+
+  if (origin) {
+    headers['Access-Control-Allow-Origin'] = origin
+  }
+
+  return headers
 }
 
 /**
