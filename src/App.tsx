@@ -13,7 +13,7 @@ function App() {
       case 'issuer':
         return <IssuerPortal />
       case 'wallet':
-        return <HolderWallet />
+        return <HolderWallet onSelectView={setActiveView} />
       case 'verifier':
         return <VerifierPortal />
       default:

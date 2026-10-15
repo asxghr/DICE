@@ -20,7 +20,7 @@ max_rows = 1000
 # `postgres` are reachable through the Data API roles (`anon`, `authenticated`, `service_role`)
 # without explicit GRANTs, matching the cloud default. Set to `false` to require explicit GRANTs
 # instead. Left unset, a fresh project falls back to `true`.
-# auto_expose_new_tables = true
+auto_expose_new_tables = false
 
 [api.tls]
 # Enable HTTPS endpoints locally using a self-signed certificate.
@@ -419,10 +419,13 @@ enabled = true
 # =============================================================================
 [functions.issue-credential]
 verify_jwt = false
+import_map = "functions/deno.json"
 
 [functions.revoke-credential]
 verify_jwt = false
+import_map = "functions/deno.json"
 
 [functions.verify-credential]
 verify_jwt = false
+import_map = "functions/deno.json"
 

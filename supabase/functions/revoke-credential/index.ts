@@ -49,8 +49,9 @@ export interface RevokeCredentialDependencies {
   loadCredentialStatus: (credentialId: string) => Promise<CredentialStatusRow | null>
   updateRevocationStatus: (
     credentialId: string,
+    issuerId: string,
     updatedAt: string
-  ) => Promise<void>
+  ) => Promise<boolean>
   nowIso: () => string
 }
 
@@ -128,20 +129,26 @@ export function createDefaultRevokeDependencies(
     },
     updateRevocationStatus: async (
       credentialId: string,
+      issuerId: string,
       updatedAt: string
-    ) => {
+    ): Promise<boolean> => {
       const supabase = getSupabaseServerClient()
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('credential_status')
         .update({
           revoked: true,
           updated_at: updatedAt,
         })
         .eq('credential_id', credentialId)
+        .eq('issuer_id', issuerId)
+        .eq('revoked', false)
+        .select('credential_id')
 
       if (error) {
         throw new ApiError('REVOCATION_FAILED', 'Failed to update credential status in database.', 500)
       }
+
+      return Array.isArray(data) && data.length > 0
     },
     nowIso: () => new Date().toISOString(),
     ...overrides,
@@ -197,13 +204,26 @@ export async function executeRevokeCredential(
     )
   }
 
-  // 6. Update revocation status
+  // 6. Update revocation status conditionally
   const updatedAt = deps.nowIso()
+  let updated = false
   try {
-    await deps.updateRevocationStatus(validated.credentialId, updatedAt)
+    updated = await deps.updateRevocationStatus(
+      validated.credentialId,
+      claims.issuerId,
+      updatedAt
+    )
   } catch (err) {
     if (err instanceof ApiError) throw err
     throw new ApiError('REVOCATION_FAILED', 'Failed to update credential status in database.', 500)
+  }
+
+  if (!updated) {
+    throw new ApiError(
+      'ALREADY_REVOKED',
+      `Credential '${validated.credentialId}' has already been revoked.`,
+      409
+    )
   }
 
   // 7. Return exact response structure (HTTP 200)

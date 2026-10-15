@@ -17,7 +17,7 @@ test('1. Authorized revocation succeeds and updates status', async () => {
     updated_at: '2026-10-15T18:00:00.000Z',
   }
 
-  let capturedUpdate: { id: string; updatedAt: string } | null = null
+  let capturedUpdate: { id: string; issuerId: string; updatedAt: string } | null = null
 
   const mockDeps: RevokeCredentialDependencies = {
     authenticateAndAuthorize: async () => ({
@@ -26,8 +26,9 @@ test('1. Authorized revocation succeeds and updates status', async () => {
       role: 'issuer_admin',
     }),
     loadCredentialStatus: async (id) => (id === existingRow.credential_id ? existingRow : null),
-    updateRevocationStatus: async (id, updatedAt) => {
-      capturedUpdate = { id, updatedAt }
+    updateRevocationStatus: async (id, issuerId, updatedAt) => {
+      capturedUpdate = { id, issuerId, updatedAt }
+      return true
     },
     nowIso: () => '2026-10-15T20:00:00.000Z',
   }
@@ -58,6 +59,7 @@ test('1. Authorized revocation succeeds and updates status', async () => {
   assert.ok(capturedUpdate !== null)
   assert.deepStrictEqual(capturedUpdate, {
     id: 'urn:uuid:credential-revoke-001',
+    issuerId: 'issuer-mit-01',
     updatedAt: '2026-10-15T20:00:00.000Z',
   })
   // Ensure NO student claims or credential payloads were touched or stored
@@ -71,7 +73,7 @@ test('2. Unauthenticated request returns 401 UNAUTHENTICATED', async () => {
       throw new ApiError('UNAUTHENTICATED', 'Missing Authorization header.', 401)
     },
     loadCredentialStatus: async () => null,
-    updateRevocationStatus: async () => {},
+    updateRevocationStatus: async () => true,
     nowIso: () => '2026-10-15T20:00:00.000Z',
   }
 
@@ -96,7 +98,7 @@ test('3. Unauthorized caller returns 403 NOT_AUTHORIZED', async () => {
       throw new ApiError('NOT_AUTHORIZED', 'Access denied: user does not hold the issuer_admin role.', 403)
     },
     loadCredentialStatus: async () => null,
-    updateRevocationStatus: async () => {},
+    updateRevocationStatus: async () => true,
     nowIso: () => '2026-10-15T20:00:00.000Z',
   }
 
@@ -135,7 +137,7 @@ test('4. Issuer CANNOT revoke another issuer’s credential (403 NOT_AUTHORIZED)
       role: 'issuer_admin',
     }),
     loadCredentialStatus: async (id) => (id === harvardRow.credential_id ? harvardRow : null),
-    updateRevocationStatus: async () => {},
+    updateRevocationStatus: async () => true,
     nowIso: () => '2026-10-15T20:00:00.000Z',
   }
 
@@ -166,7 +168,7 @@ test('5. Missing credential returns 404 CREDENTIAL_NOT_FOUND', async () => {
       role: 'issuer_admin',
     }),
     loadCredentialStatus: async () => null, // does not exist
-    updateRevocationStatus: async () => {},
+    updateRevocationStatus: async () => true,
     nowIso: () => '2026-10-15T20:00:00.000Z',
   }
 
@@ -204,7 +206,7 @@ test('6. Already revoked credential returns 409 ALREADY_REVOKED', async () => {
       role: 'issuer_admin',
     }),
     loadCredentialStatus: async () => alreadyRevokedRow,
-    updateRevocationStatus: async () => {},
+    updateRevocationStatus: async () => true,
     nowIso: () => '2026-10-15T20:00:00.000Z',
   }
 
@@ -287,7 +289,7 @@ test('8. Regression: Credential-status lookup database failure during revocation
     loadCredentialStatus: async () => {
       throw new Error('Postgres connection terminated abnormally; select * from credential_status')
     },
-    updateRevocationStatus: async () => {},
+    updateRevocationStatus: async () => true,
     nowIso: () => '2026-10-15T20:00:00.000Z',
   }
 
@@ -356,4 +358,128 @@ test('9. Regression: Revocation update database failure during revocation return
   assert.strictEqual(body.error.message.includes('DB write failed'), false)
   assert.strictEqual(body.error.message.includes('lock timeout'), false)
   assert.strictEqual(body.error.message.includes('credential_status'), false)
+})
+
+test('10. Concurrent race safety: Conditional update affecting zero rows returns HTTP 409 ALREADY_REVOKED', async () => {
+  const existingRow: CredentialStatusRow = {
+    credential_id: 'urn:uuid:credential-revoke-001',
+    issuer_id: 'issuer-mit-01',
+    revoked: false,
+    updated_at: '2026-10-15T18:00:00.000Z',
+  }
+
+  let updateCalledWith: { id: string; issuerId: string; updatedAt: string } | null = null
+
+  const mockDeps: RevokeCredentialDependencies = {
+    authenticateAndAuthorize: async () => ({
+      userId: 'admin-mit-user',
+      issuerId: 'issuer-mit-01',
+      role: 'issuer_admin',
+    }),
+    loadCredentialStatus: async () => existingRow,
+    // Simulate conditional update affecting 0 rows (e.g. concurrent race winner already updated row)
+    updateRevocationStatus: async (id, issuerId, updatedAt) => {
+      updateCalledWith = { id, issuerId, updatedAt }
+      return false
+    },
+    nowIso: () => '2026-10-15T20:00:00.000Z',
+  }
+
+  const req = new Request('http://localhost/revoke-credential', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: 'Bearer mit.admin.jwt',
+    },
+    body: JSON.stringify({
+      credentialId: 'urn:uuid:credential-revoke-001',
+      reasonCode: 'ISSUED_IN_ERROR',
+    }),
+  })
+
+  const res = await revokeCredentialHandler(req, mockDeps)
+  assert.strictEqual(res.status, 409)
+
+  const body = (await res.json()) as { error: { code: string; message: string } }
+  assert.strictEqual(body.error.code, 'ALREADY_REVOKED')
+  assert.strictEqual(
+    body.error.message,
+    "Credential 'urn:uuid:credential-revoke-001' has already been revoked."
+  )
+
+  // Verify that conditional update was invoked with credential_id, issuer_id, and timestamp
+  assert.deepStrictEqual(updateCalledWith, {
+    id: 'urn:uuid:credential-revoke-001',
+    issuerId: 'issuer-mit-01',
+    updatedAt: '2026-10-15T20:00:00.000Z',
+  })
+})
+
+test('11. Race condition simulation: Concurrent duplicate requests result in exactly one HTTP 200 and one HTTP 409', async () => {
+  const rowState: CredentialStatusRow = {
+    credential_id: 'urn:uuid:credential-race-002',
+    issuer_id: 'issuer-mit-01',
+    revoked: false,
+    updated_at: '2026-10-15T18:00:00.000Z',
+  }
+
+  // Atomic conditional update simulation matching the database update WHERE constraints
+  const mockDeps: RevokeCredentialDependencies = {
+    authenticateAndAuthorize: async () => ({
+      userId: 'admin-mit-user',
+      issuerId: 'issuer-mit-01',
+      role: 'issuer_admin',
+    }),
+    loadCredentialStatus: async () => ({ ...rowState }),
+    updateRevocationStatus: async (credentialId, issuerId, updatedAt) => {
+      // Atomic condition: only updates if credential_id, issuer_id match and revoked is false
+      if (
+        rowState.credential_id === credentialId &&
+        rowState.issuer_id === issuerId &&
+        !rowState.revoked
+      ) {
+        rowState.revoked = true
+        rowState.updated_at = updatedAt
+        return true
+      }
+      return false
+    },
+    nowIso: () => '2026-10-15T20:00:00.000Z',
+  }
+
+  const makeReq = () =>
+    new Request('http://localhost/revoke-credential', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer mit.admin.jwt',
+      },
+      body: JSON.stringify({
+        credentialId: 'urn:uuid:credential-race-002',
+        reasonCode: 'ISSUED_IN_ERROR',
+      }),
+    })
+
+  // Concurrently execute both requests
+  const [resA, resB] = await Promise.all([
+    revokeCredentialHandler(makeReq(), mockDeps),
+    revokeCredentialHandler(makeReq(), mockDeps),
+  ])
+
+  const statuses = [resA.status, resB.status].sort()
+  assert.deepStrictEqual(
+    statuses,
+    [200, 409],
+    'Concurrent requests must result in exactly one 200 and one 409'
+  )
+
+  const bodies = await Promise.all([resA.json(), resB.json()])
+  const successBody = bodies.find((b: unknown) => (b as RevokeCredentialResponse).revoked === true) as RevokeCredentialResponse | undefined
+  const conflictBody = bodies.find((b: unknown) => (b as { error?: { code: string } }).error?.code === 'ALREADY_REVOKED') as { error: { code: string; message: string } } | undefined
+
+  assert.ok(successBody, 'One response must be successful revocation payload')
+  assert.strictEqual(successBody.credentialId, 'urn:uuid:credential-race-002')
+  assert.strictEqual(successBody.revoked, true)
+  assert.ok(conflictBody, 'One response must be ALREADY_REVOKED error')
+  assert.strictEqual(conflictBody.error.code, 'ALREADY_REVOKED')
 })

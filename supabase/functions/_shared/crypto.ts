@@ -98,6 +98,8 @@ export async function exportPrivateKeyToBase64Url(privateKey: CryptoKey): Promis
 
 /**
  * Imports an Ed25519 private CryptoKey from PKCS#8 DER bytes.
+ * The imported key is non-extractable (extractable: false) to prevent
+ * private key material from being exported or leaked from memory after import.
  */
 export async function importPrivateKeyPkcs8(bytes: Uint8Array): Promise<CryptoKey> {
   if (!bytes || bytes.byteLength === 0) {
@@ -107,13 +109,15 @@ export async function importPrivateKeyPkcs8(bytes: Uint8Array): Promise<CryptoKe
     'pkcs8',
     bytes,
     ED25519_ALGORITHM,
-    true,
+    false,
     ['sign']
   )
 }
 
 /**
  * Imports an Ed25519 private CryptoKey from a base64url-encoded PKCS#8 string.
+ * The imported key is non-extractable (extractable: false) to prevent
+ * private key material from being exported or leaked from memory after import.
  */
 export async function importPrivateKeyFromBase64Url(base64url: string): Promise<CryptoKey> {
   const bytes = base64UrlToUint8Array(base64url)
