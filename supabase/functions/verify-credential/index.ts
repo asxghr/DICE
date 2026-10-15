@@ -319,7 +319,7 @@ export async function executeVerifyCredential(
       },
       message: 'Issuer is unknown, unverified, or inactive.',
     }
-    return jsonResponse(failureRes, 200)
+    return jsonResponse(failureRes, 200, undefined, req)
   }
 
   // Check 2: Key ID Matching
@@ -335,7 +335,7 @@ export async function executeVerifyCredential(
       },
       message: 'Credential key ID does not match the trusted issuer record.',
     }
-    return jsonResponse(keyMismatchRes, 200)
+    return jsonResponse(keyMismatchRes, 200, undefined, req)
   }
 
   // Check 3: Cryptographic Signature Verification
@@ -359,7 +359,7 @@ export async function executeVerifyCredential(
       },
       message: 'Cryptographic signature verification failed: credential payload was altered or signature is invalid.',
     }
-    return jsonResponse(sigFailureRes, 200)
+    return jsonResponse(sigFailureRes, 200, undefined, req)
   }
 
   // Check 4: Expiration Check
@@ -392,7 +392,7 @@ export async function executeVerifyCredential(
       },
       message: 'Credential is not registered in the status registry.',
     }
-    return jsonResponse(unregisteredRes, 200)
+    return jsonResponse(unregisteredRes, 200, undefined, req)
   }
 
   // Check 7: Credential Status Issuer Ownership
@@ -408,7 +408,7 @@ export async function executeVerifyCredential(
       },
       message: 'Credential status issuer does not match credential issuer.',
     }
-    return jsonResponse(issuerMismatchRes, 200)
+    return jsonResponse(issuerMismatchRes, 200, undefined, req)
   }
 
   const isRevoked = statusRecord.revoked === true
@@ -444,7 +444,7 @@ export async function executeVerifyCredential(
     message,
   }
 
-  return jsonResponse(responsePayload, 200)
+  return jsonResponse(responsePayload, 200, undefined, req)
 }
 
 /**
@@ -464,7 +464,7 @@ export async function verifyCredentialHandler(
     const deps = createDefaultVerifyDependencies(depsOverride)
     return await executeVerifyCredential(req, deps)
   } catch (err) {
-    return errorResponse(err)
+    return errorResponse(err, undefined, req)
   }
 }
 

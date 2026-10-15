@@ -7,11 +7,14 @@ import { SpotlightCard } from '../../components/ui/react-bits/SpotlightCard'
 import { DecryptedText } from '../../components/ui/react-bits/DecryptedText'
 import { AnimatedList } from '../../components/ui/react-bits/AnimatedList'
 import { CountUp } from '../../components/ui/react-bits/CountUp'
+import { QrScannerModal } from './QrScannerModal'
 
 export const VerifierPortal: React.FC = () => {
   // Load saved credential from browser storage
   const [credential, setCredential] = useState<AnyStudentCredential | null>(() => getSavedCredential())
   const [isTampered, setIsTampered] = useState(false)
+  const [isScanned, setIsScanned] = useState(false)
+  const [showScannerModal, setShowScannerModal] = useState(false)
   const isLegacySimulation = Boolean(credential?.proof?.type === 'DemoSimulationProof')
 
   const [isVerifying, setIsVerifying] = useState(
@@ -79,9 +82,19 @@ export const VerifierPortal: React.FC = () => {
   // Action: Restore the original untampered credential from storage (triggers verification effect via credential state change)
   const handleRestore = () => {
     const original = getSavedCredential()
+    setIsScanned(false)
     setIsVerifying(Boolean(original && original.proof?.type !== 'DemoSimulationProof'))
     setIsTampered(false)
     setCredential(original)
+  }
+
+  // Action: Receive decoded credential presented via QR scanner
+  const handleScanSuccess = (scannedCredential: AnyStudentCredential) => {
+    setCredential(scannedCredential)
+    setIsScanned(true)
+    setIsTampered(false)
+    setIsVerifying(true)
+    setVerifyTrigger((prev) => prev + 1)
   }
 
   // Action: Copy JSON representation
@@ -186,13 +199,13 @@ export const VerifierPortal: React.FC = () => {
       badge: 'forest',
     },
     {
-      label: 'Presented Record',
-      value: credential
-        ? isLegacySimulation
-          ? 'Legacy Simulated Record'
-          : '1 Presented Record'
-        : 'No Credential',
-      badge: credential && !isLegacySimulation ? 'forest' : 'neutral',
+      label: 'Presentation Channel',
+      value: isScanned
+        ? 'Optical QR Scan (Presented)'
+        : credential
+        ? 'Browser Storage'
+        : 'Awaiting Presentation',
+      badge: isScanned ? 'forest' : credential ? 'neutral' : 'neutral',
     },
     {
       label: 'Audit Status',
@@ -268,13 +281,27 @@ export const VerifierPortal: React.FC = () => {
               No Stored Credentials in Browser Storage
             </h2>
             <p className="text-xs sm:text-sm text-[#525753] leading-relaxed">
-              Your browser storage currently contains zero credentials. To verify a student credential, open the Issuer Administration workspace and issue one first.
+              Your browser storage currently contains zero credentials. You can present and audit an external student credential directly using your camera, or issue one in Issuer Administration.
             </p>
           </div>
 
-          <div className="pt-2">
+          <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
+            <button
+              type="button"
+              onClick={() => setShowScannerModal(true)}
+              className="px-4 py-2.5 bg-[#264D3B] text-[#FFFFFF] text-xs font-mono uppercase tracking-wider font-semibold border border-[#1B382B] hover:bg-[#1B382B] transition-colors rounded-xs shadow-xs cursor-pointer flex items-center gap-2 focus-visible:ring-2 focus-visible:ring-[#264D3B] focus-visible:outline-none"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="square" aria-hidden="true">
+                <rect x="3" y="3" width="7" height="7" />
+                <rect x="14" y="3" width="7" height="7" />
+                <rect x="3" y="14" width="7" height="7" />
+                <rect x="14" y="14" width="3" height="3" />
+                <rect x="18" y="18" width="3" height="3" />
+              </svg>
+              <span>Scan Student QR Code</span>
+            </button>
             <span className="inline-block font-mono text-[11px] text-[#787E78] border border-[#E7E3DA] bg-[#FAF8F5] px-3.5 py-1.5 rounded-xs">
-              STATUS: NO_CREDENTIAL_PRESENTED
+              STATUS: AWAITING_PRESENTATION
             </span>
           </div>
         </section>
@@ -428,6 +455,22 @@ export const VerifierPortal: React.FC = () => {
               <div className="flex flex-wrap sm:flex-nowrap items-center gap-2.5 shrink-0 self-start md:self-center">
                 <button
                   type="button"
+                  onClick={() => setShowScannerModal(true)}
+                  className="px-3.5 py-2.5 text-xs font-mono uppercase tracking-wider font-semibold border border-[#CADACF] bg-[#EDF3EE] text-[#264D3B] hover:bg-[#CADACF]/60 transition-colors rounded-xs cursor-pointer flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-[#264D3B] focus-visible:outline-none"
+                  title="Scan credential QR code via camera, image upload, or paste"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="square" aria-hidden="true">
+                    <rect x="3" y="3" width="7" height="7" />
+                    <rect x="14" y="3" width="7" height="7" />
+                    <rect x="3" y="14" width="7" height="7" />
+                    <rect x="14" y="14" width="3" height="3" />
+                    <rect x="18" y="18" width="3" height="3" />
+                  </svg>
+                  <span>Scan QR</span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={handleVerify}
                   disabled={isVerifying}
                   className="px-4 py-2.5 text-xs font-mono uppercase tracking-wider bg-[#264D3B] text-[#FFFFFF] font-semibold border border-[#1B382B] hover:bg-[#1B382B] transition-colors rounded-xs shadow-xs cursor-pointer disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-[#264D3B] focus-visible:outline-none"
@@ -457,6 +500,26 @@ export const VerifierPortal: React.FC = () => {
               </div>
             </div>
           </section>
+
+          {/* Ephemeral QR Scan Presentation Notice */}
+          {isScanned && (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-[#EDF3EE] border border-[#CADACF] rounded-xs text-xs font-mono shadow-2xs">
+              <div className="flex items-center gap-2.5 text-[#264D3B]">
+                <span className="h-2 w-2 rounded-full bg-[#264D3B]" aria-hidden="true" />
+                <span className="font-semibold uppercase tracking-wider">
+                  Channel: Presented via QR Barcode
+                </span>
+                <span className="text-[#525753] text-[11px]">(Ephemeral In-Memory Audit)</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleRestore}
+                className="text-[11px] uppercase tracking-wider text-[#A84835] hover:underline font-semibold cursor-pointer self-start sm:self-auto"
+              >
+                Clear Presented & Return to Stored Record →
+              </button>
+            </div>
+          )}
 
           {/* Presented Credential Surface (SpotlightCard) */}
           <SpotlightCard
@@ -721,6 +784,12 @@ export const VerifierPortal: React.FC = () => {
         </div>
         <span className="font-mono text-[11px] text-[#787E78]">REMOTE EDGE ENGINE</span>
       </aside>
+
+      <QrScannerModal
+        isOpen={showScannerModal}
+        onClose={() => setShowScannerModal(false)}
+        onScanSuccess={handleScanSuccess}
+      />
     </PageLayout>
   )
 }

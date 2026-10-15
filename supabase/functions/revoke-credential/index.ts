@@ -233,7 +233,7 @@ export async function executeRevokeCredential(
     updatedAt,
   }
 
-  return jsonResponse(responsePayload, 200)
+  return jsonResponse(responsePayload, 200, undefined, req)
 }
 
 /**
@@ -253,7 +253,7 @@ export async function revokeCredentialHandler(
     const deps = createDefaultRevokeDependencies(depsOverride)
     return await executeRevokeCredential(req, deps)
   } catch (err) {
-    return errorResponse(err)
+    return errorResponse(err, undefined, req)
   }
 }
 
