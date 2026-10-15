@@ -12,6 +12,7 @@ import {
 } from './walletState'
 import { SpotlightCard } from '../../components/ui/react-bits/SpotlightCard'
 import { DecryptedText } from '../../components/ui/react-bits/DecryptedText'
+import { QrPresentationModal } from './QrPresentationModal'
 
 export interface HolderWalletProps {
   onSelectView?: (view: ActiveView) => void
@@ -24,6 +25,7 @@ export const HolderWallet: React.FC<HolderWalletProps> = ({ onSelectView }) => {
   const [showJsonDetails, setShowJsonDetails] = useState(false)
   const [copied, setCopied] = useState(false)
   const [confirmClear, setConfirmClear] = useState(false)
+  const [showQrModal, setShowQrModal] = useState(false)
 
   // Safe event-driven refresh without polling
   const syncFromStorage = useCallback(() => {
@@ -163,11 +165,26 @@ export const HolderWallet: React.FC<HolderWalletProps> = ({ onSelectView }) => {
             </div>
 
             <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowQrModal(true)}
+                className="px-4 py-2.5 bg-[#264D3B] text-[#FFFFFF] text-xs font-mono uppercase tracking-wider font-semibold border border-[#1B382B] hover:bg-[#1B382B] transition-colors rounded-xs shadow-xs cursor-pointer focus-visible:ring-2 focus-visible:ring-[#264D3B] focus-visible:outline-none flex items-center gap-2"
+                aria-label="Share credential via QR code"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="square" aria-hidden="true">
+                  <rect x="3" y="3" width="7" height="7" />
+                  <rect x="14" y="3" width="7" height="7" />
+                  <rect x="3" y="14" width="7" height="7" />
+                  <rect x="14" y="14" width="3" height="3" />
+                  <rect x="18" y="18" width="3" height="3" />
+                </svg>
+                <span>Share via QR</span>
+              </button>
               {onSelectView && (
                 <button
                   type="button"
                   onClick={() => onSelectView('verifier')}
-                  className="px-4 py-2.5 bg-[#264D3B] text-[#FFFFFF] text-xs font-mono uppercase tracking-wider font-semibold border border-[#1B382B] hover:bg-[#1B382B] transition-colors rounded-xs shadow-xs cursor-pointer focus-visible:ring-2 focus-visible:ring-[#264D3B] focus-visible:outline-none"
+                  className="px-3.5 py-2.5 bg-[#FFFFFF] text-[#1C201D] text-xs font-mono uppercase tracking-wider font-semibold border border-[#D4CEBF] hover:bg-[#FAF8F5] transition-colors rounded-xs shadow-xs cursor-pointer focus-visible:ring-2 focus-visible:ring-[#264D3B] focus-visible:outline-none"
                 >
                   Verify at Verification Desk →
                 </button>
@@ -225,6 +242,22 @@ export const HolderWallet: React.FC<HolderWalletProps> = ({ onSelectView }) => {
 
               {/* Management Actions */}
               <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+                <button
+                  type="button"
+                  onClick={() => setShowQrModal(true)}
+                  className="px-3 py-1.5 text-xs font-mono uppercase tracking-wider font-semibold border border-[#CADACF] bg-[#EDF3EE] text-[#264D3B] hover:bg-[#CADACF]/60 transition-colors rounded-xs cursor-pointer flex items-center gap-1.5"
+                  title="Present this signed credential via QR barcode"
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="square" aria-hidden="true">
+                    <rect x="3" y="3" width="7" height="7" />
+                    <rect x="14" y="3" width="7" height="7" />
+                    <rect x="3" y="14" width="7" height="7" />
+                    <rect x="14" y="14" width="3" height="3" />
+                    <rect x="18" y="18" width="3" height="3" />
+                  </svg>
+                  <span>Share QR</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={syncFromStorage}
@@ -391,6 +424,12 @@ export const HolderWallet: React.FC<HolderWalletProps> = ({ onSelectView }) => {
           </SpotlightCard>
         </div>
       )}
+
+      <QrPresentationModal
+        isOpen={showQrModal}
+        onClose={() => setShowQrModal(false)}
+        credential={credential}
+      />
     </PageLayout>
   )
 }
