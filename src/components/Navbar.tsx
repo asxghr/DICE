@@ -39,20 +39,45 @@ export const Navbar: React.FC<NavbarProps> = ({ activeView, onSelectView }) => {
           <div className="flex items-center gap-2.5 sm:gap-3 shrink-0">
             <div className="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center border border-[#D4CEBF] bg-[#FFFFFF] text-[#264D3B] font-semibold text-xs sm:text-sm tracking-wider shadow-2xs">
               <svg
-                width="18"
-                height="18"
+                width="20"
+                height="20"
                 viewBox="0 0 24 24"
                 fill="none"
-                stroke="currentColor"
-                strokeWidth="1.75"
-                strokeLinecap="square"
-                strokeLinejoin="miter"
                 aria-hidden="true"
               >
-                <rect x="3" y="3" width="18" height="18" />
-                <path d="M12 3v18" />
-                <path d="M3 12h18" />
-                <circle cx="12" cy="12" r="2" fill="currentColor" />
+                {/* Academic credential seal plaque */}
+                <path
+                  d="M8 2.5h8l5.5 5.5v8l-5.5 5.5H8L2.5 16V8L8 2.5z"
+                  fill="#FAF8F5"
+                  stroke="#264D3B"
+                  strokeWidth="1.5"
+                  strokeLinejoin="round"
+                />
+                {/* Cardinal digital verification axes */}
+                <path
+                  d="M12 2.5v4M12 17.5v4M2.5 12h4M17.5 12h4"
+                  stroke="#1B382B"
+                  strokeWidth="1.4"
+                  strokeLinecap="round"
+                />
+                {/* Central institutional trust medallion */}
+                <circle
+                  cx="12"
+                  cy="12"
+                  r="5.5"
+                  fill="#264D3B"
+                  stroke="#1B382B"
+                  strokeWidth="1.2"
+                />
+                {/* Cryptographic verification checkmark */}
+                <path
+                  d="M9.25 12l2 2 3.5-3.5"
+                  fill="none"
+                  stroke="#FAF8F5"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
               </svg>
             </div>
             <div>

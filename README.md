@@ -152,7 +152,17 @@ Apply the migrations in:
 supabase/migrations/
 ```
 
-Configure private signing keys and other server-only values through Supabase Edge Function secrets.
+Configure private signing keys and other server-only values through Supabase Edge Function secrets:
+
+| Secret Name | Purpose | Example / Format |
+| :--- | :--- | :--- |
+| `ISSUER_PRIVATE_KEY` | Server Ed25519 private signing key (PKCS#8 Base64URL) | Base64URL string (keep strictly confidential) |
+| `DICE_ISSUER_ID` | Registered issuer identifier | `svce-demo` |
+| `DICE_ISSUER_KEY_ID` | Key identifier corresponding to registered public key | `svce-demo-key-v1` |
+| `ALLOWED_ORIGIN` | Allowed origin(s) for CORS preflight and responses | `http://localhost:5173,https://your-domain.vercel.app` |
+| `SUPABASE_URL` | Supabase API URL | `https://your-project.supabase.co` |
+| `SUPABASE_SERVICE_ROLE_KEY` | Administrative service-role key (bypasses RLS) | Supabase service-role JWT |
+| `SUPABASE_DB_URL` | Direct PostgreSQL connection string | Postgres connection URI |
 
 > Never place private keys, service-role keys, passwords, access tokens, or complete `.env` files in the repository.
 
