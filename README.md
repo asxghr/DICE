@@ -17,28 +17,9 @@ A lightweight academic credential platform for issuing, holding, presenting, and
 
 ---
 
-## ✨ What it does
+<a id="how-it-works"></a>
 
-| Issuer | Holder | Verifier |
-|---|---|---|
-| Authenticated registrar portal | Browser-based credential wallet | Public verification desk |
-| Ed25519 credential signing | Local storage and QR presentation | Signature and expiry checks |
-| Credential revocation | QR, JSON, and copy actions | Issuer trust and revocation checks |
-
-## 🔐 Core features
-
-- Server-side Ed25519 signing
-- Deterministic credential serialization
-- Supabase Auth issuer authorization
-- Public credential verification
-- Tamper detection
-- Expiry and student-status validation
-- Issuer-controlled revocation
-- QR generation, scanning, upload, and paste fallback
-- Strict request validation and CORS protection
-- Minimal database storage with no complete credentials or private keys
-
-## How it works
+## How It Works
 
 ```mermaid
 flowchart LR
@@ -53,7 +34,21 @@ flowchart LR
     F --> J[Revocation Status]
 ```
 
-The credential remains signed even after revocation, but verification fails when the status registry marks it as revoked.
+D.I.C.E. demonstrates how an institution can issue a digitally signed student-status credential, how a holder can retain it locally, and how a verifier can independently check it.
+
+## ✨ Core Features
+
+- Server-side Ed25519 signing
+- Deterministic credential serialization
+- Supabase Auth issuer authorization
+- Public credential verification
+- Tamper detection
+- Expiry and student-status validation
+- Issuer-controlled revocation
+- QR generation, scanning, upload, and paste fallback
+- Strict request validation and CORS protection
+- Minimal database storage
+- No complete credential payloads or private keys stored in PostgreSQL
 
 ## 🧱 Architecture
 
@@ -75,11 +70,19 @@ Supabase
     └── revoke-credential
 ```
 
-### Stack
+### Technology Stack
 
 `React` · `TypeScript` · `Vite` · `Supabase` · `PostgreSQL` · `Web Crypto` · `Ed25519` · `QRCode` · `jsQR`
 
-## 📜 Credential model
+## 👥 Application Roles
+
+| Issuer | Holder | Verifier |
+|---|---|---|
+| Authenticated registrar portal | Browser-based credential wallet | Public verification desk |
+| Issues signed credentials | Stores credentials locally | Checks credential authenticity |
+| Revokes credentials | Presents QR or JSON | Checks expiry and revocation |
+
+## 📜 Credential Model
 
 D.I.C.E. uses a minimal student-status credential:
 
@@ -103,7 +106,7 @@ D.I.C.E. uses a minimal student-status credential:
 
 The signature covers the credential data but excludes the `proof` object itself.
 
-## ✅ Verification checks
+## ✅ Verification Checks
 
 The verifier checks:
 
@@ -111,12 +114,16 @@ The verifier checks:
 - Matching issuer key
 - Ed25519 signature
 - Expiry date
-- Student status claim
+- Student-status claim
 - Credential registration
 - Revocation status
 - Issuer ownership of the status record
 
-## 🚀 Quick start
+A revoked credential remains cryptographically signed, but verification fails because the status registry reports it as revoked.
+
+<a id="quick-start"></a>
+
+## 🚀 Quick Start
 
 ### Requirements
 
@@ -145,19 +152,23 @@ Apply the migrations in:
 supabase/migrations/
 ```
 
-Configure private signing keys and other server-only values through Supabase Edge Function secrets. Never place them in frontend environment variables.
+Configure private signing keys and other server-only values through Supabase Edge Function secrets.
 
-### Commands
+> Never place private keys, service-role keys, passwords, access tokens, or complete `.env` files in the repository.
+
+### Available Commands
 
 ```bash
-npm run dev       # Development server
-npm run build     # Production build
-npm run test      # Automated tests
-npm run lint      # Lint checks
+npm run dev       # Start development server
+npm run build     # Create production build
+npm run test      # Run automated tests
+npm run lint      # Run lint checks
 npm run preview   # Preview production build
 ```
 
-## 🎬 Evaluation demo
+<a id="evaluation-demo"></a>
+
+## 🎬 Evaluation Demo
 
 1. Sign in using the dedicated demo issuer account.
 2. Issue a student credential.
@@ -170,15 +181,18 @@ npm run preview   # Preview production build
 
 Evaluator credentials should be shared privately and never committed to GitHub.
 
-## 🛡️ Security principles
+## 🛡️ Security Principles
 
-- Private signing keys stay server-side.
+- Private signing keys remain server-side.
 - Issuer authorization uses Supabase `app_metadata`.
 - Complete credentials are not stored in PostgreSQL.
 - Direct database mutations are restricted.
 - Verification is public for the MVP.
 - QR payloads are processed in browser memory.
 - Credentials are stored locally for the prototype wallet.
+- The frontend never receives server-only secrets.
+
+<a id="limitations"></a>
 
 ## ⚠️ Limitations
 
@@ -190,7 +204,7 @@ Evaluator credentials should be shared privately and never committed to GitHub.
 - The credential format does not claim full W3C Verifiable Credential compliance.
 - The MVP currently uses one configured demo issuer.
 
-## 📁 Project structure
+## 📁 Project Structure
 
 ```text
 src/
@@ -213,7 +227,7 @@ supabase/
 └── migrations/
 ```
 
-## Project status
+## Project Status
 
 The core lifecycle is implemented:
 
